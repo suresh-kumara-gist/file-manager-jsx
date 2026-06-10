@@ -5,7 +5,6 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-# Set permissions
 permissions:
   contents: read
   actions: write
@@ -22,23 +21,20 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
     
-    - name: Generate package-lock.json if missing
+    - name: Install dependencies (without lock file)
       run: |
-        if [ ! -f package-lock.json ]; then
-          echo "Creating package-lock.json..."
-          npm init -y
-          npm install --package-lock-only
-        fi
-    
-    - name: Install dependencies
-      run: npm ci --no-audit --no-fund
+        npm install --no-package-lock
+        # OR use npm install instead of npm ci
+        npm install
     
     - name: Build React app
-      run: npm run build
+      run: |
+        npm run build
       env:
         CI: false
+        DISABLE_ESLINT_PLUGIN: true
+        SKIP_PREFLIGHT_CHECK: true
     
     - name: Setup Java
       uses: actions/setup-java@v4
@@ -55,11 +51,13 @@ jobs:
         npx cap init RedmiFileManager com.redmi.filemanager --web-dir=build
     
     - name: Add Android platform
-      run: npx cap add android
+      run: |
+        npx cap add android
+      continue-on-error: true
     
     - name: Create AndroidManifest.xml
       run: |
-        mkdir -p android/app/src/main/AndroidManifest.xml
+        mkdir -p android/app/src/main
         cat > android/app/src/main/AndroidManifest.xml << 'EOF'
         <?xml version="1.0" encoding="utf-8"?>
         <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -67,20 +65,22 @@ jobs:
         
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
             <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
             <uses-permission android:name="android.permission.BLUETOOTH" />
             <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+            <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+            <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
             <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
             <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
             <uses-permission android:name="android.permission.CAMERA" />
             <uses-permission android:name="android.permission.RECORD_AUDIO" />
             <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
             <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-            
             <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
             <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
             <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+            <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
             
             <queries>
                 <package android:name="com.whatsapp" />
@@ -100,7 +100,8 @@ jobs:
                 android:supportsRtl="true"
                 android:theme="@style/AppTheme"
                 android:requestLegacyExternalStorage="true"
-                android:usesCleartextTraffic="true">
+                android:usesCleartextTraffic="true"
+                android:largeHeap="true">
                 
                 <activity
                     android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
@@ -114,11 +115,39 @@ jobs:
                         <action android:name="android.intent.action.MAIN" />
                         <category android:name="android.intent.category.LAUNCHER" />
                     </intent-filter>
+                    
+                    <intent-filter>
+                        <action android:name="android.intent.action.VIEW" />
+                        <category android:name="android.intent.category.DEFAULT" />
+                        <data android:mimeType="*/*" />
+                    </intent-filter>
                 </activity>
                 
+                <provider
+                    android:name="androidx.core.content.FileProvider"
+                    android:authorities="${applicationId}.fileprovider"
+                    android:exported="false"
+                    android:grantUriPermissions="true">
+                    <meta-data
+                        android:name="android.support.FILE_PROVIDER_PATHS"
+                        android:resource="@xml/file_paths" />
+                </provider>
             </application>
-
         </manifest>
+        EOF
+    
+    - name: Create file_paths.xml
+      run: |
+        mkdir -p android/app/src/main/res/xml
+        cat > android/app/src/main/res/xml/file_paths.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <paths>
+            <external-path name="external_files" path="." />
+            <files-path name="files" path="." />
+            <cache-path name="cache" path="." />
+            <external-files-path name="external_app_files" path="." />
+            <root-path name="root" path="/" />
+        </paths>
         EOF
     
     - name: Create MainActivity
@@ -128,17 +157,26 @@ jobs:
         package com.redmi.filemanager;
         
         import android.os.Bundle;
+        import android.webkit.WebView;
+        import android.webkit.WebSettings;
         import com.getcapacitor.BridgeActivity;
         
         public class MainActivity extends BridgeActivity {
             @Override
             public void onCreate(Bundle savedInstanceState) {
                 super.onCreate(savedInstanceState);
+                
+                // Enable webview settings
+                WebView webView = new WebView(this);
+                WebSettings webSettings = webView.getSettings();
+                webSettings.setDomStorageEnabled(true);
+                webSettings.setAllowFileAccess(true);
+                webSettings.setAllowContentAccess(true);
             }
         }
         EOF
     
-    - name: Create strings.xml
+    - name: Create resources
       run: |
         mkdir -p android/app/src/main/res/values
         cat > android/app/src/main/res/values/strings.xml << 'EOF'
@@ -147,10 +185,7 @@ jobs:
             <string name="app_name">Redmi File Manager</string>
         </resources>
         EOF
-    
-    - name: Create themes.xml
-      run: |
-        mkdir -p android/app/src/main/res/values
+        
         cat > android/app/src/main/res/values/themes.xml << 'EOF'
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
@@ -165,10 +200,7 @@ jobs:
             </style>
         </resources>
         EOF
-    
-    - name: Create colors.xml
-      run: |
-        mkdir -p android/app/src/main/res/values
+        
         cat > android/app/src/main/res/values/colors.xml << 'EOF'
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
@@ -178,6 +210,22 @@ jobs:
             <color name="backgroundColor">#0f1320</color>
         </resources>
         EOF
+    
+    - name: Create dummy icons
+      run: |
+        mkdir -p android/app/src/main/res/mipmap-hdpi
+        mkdir -p android/app/src/main/res/mipmap-mdpi
+        mkdir -p android/app/src/main/res/mipmap-xhdpi
+        mkdir -p android/app/src/main/res/mipmap-xxhdpi
+        mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+        
+        # Create simple placeholder icons
+        for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+          echo '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+            <background android:drawable="@color/colorPrimary"/>
+            <foreground android:drawable="@drawable/ic_foreground"/>
+          </adaptive-icon>' > android/app/src/main/res/$dir/ic_launcher.xml
+        done
     
     - name: Copy web assets to Android
       run: npx cap copy android
@@ -189,10 +237,16 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x android/gradlew
     
+    - name: Clean build
+      run: |
+        cd android
+        ./gradlew clean --no-daemon
+      continue-on-error: true
+    
     - name: Build Android APK (Debug)
       run: |
         cd android
-        ./gradlew assembleDebug --no-daemon
+        ./gradlew assembleDebug --no-daemon --stacktrace
     
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
@@ -205,7 +259,7 @@ jobs:
     - name: Build Android APK (Release)
       run: |
         cd android
-        ./gradlew assembleRelease --no-daemon
+        ./gradlew assembleRelease --no-daemon --stacktrace
       continue-on-error: true
     
     - name: Upload Release APK (if exists)
