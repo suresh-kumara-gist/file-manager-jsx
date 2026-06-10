@@ -22,11 +22,43 @@ jobs:
       with:
         node-version: '18'
     
-    - name: Install dependencies (without lock file)
+    - name: Create package.json if missing
       run: |
-        npm install --no-package-lock
-        # OR use npm install instead of npm ci
-        npm install
+        if [ ! -f package.json ]; then
+          cat > package.json << 'EOF'
+        {
+          "name": "redmi-file-manager",
+          "version": "1.0.0",
+          "private": true,
+          "dependencies": {
+            "react": "^18.2.0",
+            "react-dom": "^18.2.0",
+            "react-scripts": "5.0.1",
+            "@capacitor/core": "^5.0.0",
+            "@capacitor/android": "^5.0.0",
+            "@capacitor/filesystem": "^5.0.0",
+            "@capacitor/share": "^5.0.0",
+            "@capacitor/toast": "^5.0.0"
+          },
+          "scripts": {
+            "start": "react-scripts start",
+            "build": "react-scripts build",
+            "test": "react-scripts test",
+            "eject": "react-scripts eject"
+          },
+          "eslintConfig": {
+            "extends": ["react-app"]
+          },
+          "browserslist": {
+            "production": [">0.2%", "not dead", "not op_mini all"],
+            "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+          }
+        }
+        EOF
+        fi
+    
+    - name: Install dependencies
+      run: npm install --legacy-peer-deps
     
     - name: Build React app
       run: |
@@ -45,10 +77,28 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
     
+    - name: Create Capacitor config (JSON, not TS)
+      run: |
+        cat > capacitor.config.json << 'EOF'
+        {
+          "appId": "com.redmi.filemanager",
+          "appName": "Redmi File Manager",
+          "webDir": "build",
+          "bundledWebRuntime": false,
+          "android": {
+            "allowMixedContent": true,
+            "captureInput": true,
+            "webContentsDebuggingEnabled": false,
+            "minSdkVersion": 21,
+            "targetSdkVersion": 33
+          }
+        }
+        EOF
+    
     - name: Install Capacitor
       run: |
         npm install -g @capacitor/cli@5.0.0 @capacitor/android@5.0.0
-        npx cap init RedmiFileManager com.redmi.filemanager --web-dir=build
+        npx cap init RedmiFileManager com.redmi.filemanager --web-dir=build --npm-client=npm
     
     - name: Add Android platform
       run: |
@@ -115,39 +165,10 @@ jobs:
                         <action android:name="android.intent.action.MAIN" />
                         <category android:name="android.intent.category.LAUNCHER" />
                     </intent-filter>
-                    
-                    <intent-filter>
-                        <action android:name="android.intent.action.VIEW" />
-                        <category android:name="android.intent.category.DEFAULT" />
-                        <data android:mimeType="*/*" />
-                    </intent-filter>
                 </activity>
                 
-                <provider
-                    android:name="androidx.core.content.FileProvider"
-                    android:authorities="${applicationId}.fileprovider"
-                    android:exported="false"
-                    android:grantUriPermissions="true">
-                    <meta-data
-                        android:name="android.support.FILE_PROVIDER_PATHS"
-                        android:resource="@xml/file_paths" />
-                </provider>
             </application>
         </manifest>
-        EOF
-    
-    - name: Create file_paths.xml
-      run: |
-        mkdir -p android/app/src/main/res/xml
-        cat > android/app/src/main/res/xml/file_paths.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <paths>
-            <external-path name="external_files" path="." />
-            <files-path name="files" path="." />
-            <cache-path name="cache" path="." />
-            <external-files-path name="external_app_files" path="." />
-            <root-path name="root" path="/" />
-        </paths>
         EOF
     
     - name: Create MainActivity
@@ -157,21 +178,12 @@ jobs:
         package com.redmi.filemanager;
         
         import android.os.Bundle;
-        import android.webkit.WebView;
-        import android.webkit.WebSettings;
         import com.getcapacitor.BridgeActivity;
         
         public class MainActivity extends BridgeActivity {
             @Override
             public void onCreate(Bundle savedInstanceState) {
                 super.onCreate(savedInstanceState);
-                
-                // Enable webview settings
-                WebView webView = new WebView(this);
-                WebSettings webSettings = webView.getSettings();
-                webSettings.setDomStorageEnabled(true);
-                webSettings.setAllowFileAccess(true);
-                webSettings.setAllowContentAccess(true);
             }
         }
         EOF
@@ -211,20 +223,48 @@ jobs:
         </resources>
         EOF
     
-    - name: Create dummy icons
+    - name: Create simple launcher icons
       run: |
+        mkdir -p android/app/src/main/res/drawable
+        cat > android/app/src/main/res/drawable/ic_launcher_background.xml << 'EOF'
+        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+            <solid android:color="#0f1320"/>
+        </shape>
+        EOF
+        
+        cat > android/app/src/main/res/drawable/ic_launcher_foreground.xml << 'EOF'
+        <vector xmlns:android="http://schemas.android.com/apk/res/android"
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <path
+                android:fillColor="#4f8ef7"
+                android:pathData="M31,63.93L31,46.07L54,33L77,46.07L77,63.93L54,77L31,63.93Z"/>
+            <path
+                android:fillColor="#FFFFFF"
+                android:fillAlpha="0.5"
+                android:pathData="M54,44L68,52L68,68L54,76L40,68L40,52L54,44Z"/>
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M54,48L64,54L64,66L54,72L44,66L44,54L54,48Z"/>
+        </vector>
+        EOF
+        
         mkdir -p android/app/src/main/res/mipmap-hdpi
         mkdir -p android/app/src/main/res/mipmap-mdpi
         mkdir -p android/app/src/main/res/mipmap-xhdpi
         mkdir -p android/app/src/main/res/mipmap-xxhdpi
         mkdir -p android/app/src/main/res/mipmap-xxxhdpi
         
-        # Create simple placeholder icons
         for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
-          echo '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-            <background android:drawable="@color/colorPrimary"/>
-            <foreground android:drawable="@drawable/ic_foreground"/>
-          </adaptive-icon>' > android/app/src/main/res/$dir/ic_launcher.xml
+          cat > android/app/src/main/res/$dir/ic_launcher.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+            <background android:drawable="@drawable/ic_launcher_background"/>
+            <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+        </adaptive-icon>
+        EOF
         done
     
     - name: Copy web assets to Android
@@ -237,11 +277,11 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x android/gradlew
     
-    - name: Clean build
+    - name: Update Capacitor config in Android project
       run: |
-        cd android
-        ./gradlew clean --no-daemon
-      continue-on-error: true
+        # Copy the config to android/app/src/main/assets/capacitor.config.json
+        mkdir -p android/app/src/main/assets
+        cp capacitor.config.json android/app/src/main/assets/
     
     - name: Build Android APK (Debug)
       run: |
