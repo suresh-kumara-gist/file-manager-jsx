@@ -3,22 +3,12 @@ name: Build Android APK
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
-# Add permissions for GitHub Actions
+# Set permissions
 permissions:
   contents: read
   actions: write
-  checks: write
-  deployments: write
-  issues: write
-  packages: write
-  pull-requests: write
-  repository-projects: write
-  security-events: write
-  statuses: write
 
 jobs:
   build:
@@ -34,14 +24,24 @@ jobs:
         node-version: '18'
         cache: 'npm'
     
+    - name: Generate package-lock.json if missing
+      run: |
+        if [ ! -f package-lock.json ]; then
+          echo "Creating package-lock.json..."
+          npm init -y
+          npm install --package-lock-only
+        fi
+    
     - name: Install dependencies
-      run: npm ci
+      run: npm ci --no-audit --no-fund
     
     - name: Build React app
       run: npm run build
+      env:
+        CI: false
     
     - name: Setup Java
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
@@ -51,77 +51,41 @@ jobs:
     
     - name: Install Capacitor
       run: |
-        npm install -g @capacitor/cli @capacitor/android
+        npm install -g @capacitor/cli@5.0.0 @capacitor/android@5.0.0
         npx cap init RedmiFileManager com.redmi.filemanager --web-dir=build
-        npx cap add android
     
-    - name: Create AndroidManifest.xml with all permissions
+    - name: Add Android platform
+      run: npx cap add android
+    
+    - name: Create AndroidManifest.xml
       run: |
         mkdir -p android/app/src/main/AndroidManifest.xml
         cat > android/app/src/main/AndroidManifest.xml << 'EOF'
         <?xml version="1.0" encoding="utf-8"?>
         <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-            package="com.redmi.filemanager"
-            android:installLocation="auto">
-
-            <!-- Network Permissions -->
+            package="com.redmi.filemanager">
+        
             <uses-permission android:name="android.permission.INTERNET" />
-            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-            <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-            
-            <!-- Storage Permissions for Android 12 and below -->
             <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
-                android:maxSdkVersion="29" />
+            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+            <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+            <uses-permission android:name="android.permission.BLUETOOTH" />
+            <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+            <uses-permission android:name="android.permission.CAMERA" />
+            <uses-permission android:name="android.permission.RECORD_AUDIO" />
+            <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
             
-            <!-- Storage Permissions for Android 13+ -->
             <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
             <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
             <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
             
-            <!-- Manage all files permission (Android 11+) -->
-            <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-            
-            <!-- Bluetooth for Nearby Share -->
-            <uses-permission android:name="android.permission.BLUETOOTH" />
-            <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-            <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-            <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-            <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-            
-            <!-- Location for Bluetooth discovery -->
-            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-            
-            <!-- Camera for document scanning -->
-            <uses-permission android:name="android.permission.CAMERA" />
-            
-            <!-- Microphone for voice notes -->
-            <uses-permission android:name="android.permission.RECORD_AUDIO" />
-            
-            <!-- Notifications -->
-            <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-            
-            <!-- Background tasks -->
-            <uses-permission android:name="android.permission.WAKE_LOCK" />
-            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-            
-            <!-- Install unknown apps -->
-            <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-            
-            <!-- Package usage stats -->
-            <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
-            
-            <!-- Queries for sharing apps -->
             <queries>
                 <package android:name="com.whatsapp" />
                 <package android:name="com.google.android.gm" />
                 <package android:name="org.telegram.messenger" />
-                <package android:name="com.google.android.apps.docs" />
-                <package android:name="com.google.android.apps.messaging" />
-                <package android:name="com.android.chrome" />
-                <package android:name="com.dropbox.android" />
-                <package android:name="com.microsoft.skydrive" />
                 <intent>
                     <action android:name="android.intent.action.SEND" />
                     <data android:mimeType="*/*" />
@@ -136,8 +100,7 @@ jobs:
                 android:supportsRtl="true"
                 android:theme="@style/AppTheme"
                 android:requestLegacyExternalStorage="true"
-                android:usesCleartextTraffic="true"
-                android:largeHeap="true">
+                android:usesCleartextTraffic="true">
                 
                 <activity
                     android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
@@ -151,206 +114,27 @@ jobs:
                         <action android:name="android.intent.action.MAIN" />
                         <category android:name="android.intent.category.LAUNCHER" />
                     </intent-filter>
-                    
-                    <!-- File opening intents -->
-                    <intent-filter>
-                        <action android:name="android.intent.action.VIEW" />
-                        <category android:name="android.intent.category.DEFAULT" />
-                        <data android:mimeType="*/*" />
-                    </intent-filter>
-                    
-                    <intent-filter>
-                        <action android:name="android.intent.action.GET_CONTENT" />
-                        <category android:name="android.intent.category.OPENABLE" />
-                        <data android:mimeType="*/*" />
-                    </intent-filter>
-                    
                 </activity>
-                
-                <!-- File Provider for sharing -->
-                <provider
-                    android:name="androidx.core.content.FileProvider"
-                    android:authorities="${applicationId}.fileprovider"
-                    android:exported="false"
-                    android:grantUriPermissions="true">
-                    <meta-data
-                        android:name="android.support.FILE_PROVIDER_PATHS"
-                        android:resource="@xml/file_paths" />
-                </provider>
                 
             </application>
 
         </manifest>
         EOF
     
-    - name: Create file_paths.xml for FileProvider
-      run: |
-        mkdir -p android/app/src/main/res/xml
-        cat > android/app/src/main/res/xml/file_paths.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <paths>
-            <external-path name="external_files" path="." />
-            <files-path name="files" path="." />
-            <cache-path name="cache" path="." />
-            <external-files-path name="external_app_files" path="." />
-            <external-cache-path name="external_cache" path="." />
-            <root-path name="root" path="/" />
-        </paths>
-        EOF
-    
-    - name: Copy web assets to Android
-      run: npx cap copy android
-    
-    - name: Update Capacitor config for Android
-      run: |
-        cat > capacitor.config.json << 'EOF'
-        {
-          "appId": "com.redmi.filemanager",
-          "appName": "Redmi File Manager",
-          "webDir": "build",
-          "bundledWebRuntime": false,
-          "android": {
-            "allowMixedContent": true,
-            "captureInput": true,
-            "webContentsDebuggingEnabled": false,
-            "minSdkVersion": 21,
-            "targetSdkVersion": 33
-          },
-          "plugins": {
-            "Filesystem": {
-              "strict": false
-            }
-          }
-        }
-        EOF
-        npx cap copy android
-    
-    - name: Sync Capacitor
-      run: npx cap sync android
-    
-    - name: Create local.properties
-      run: |
-        echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-    
-    - name: Grant execute permission for gradlew
-      run: chmod +x android/gradlew
-    
-    - name: Create custom MainActivity with permission handling
+    - name: Create MainActivity
       run: |
         mkdir -p android/app/src/main/java/com/redmi/filemanager
         cat > android/app/src/main/java/com/redmi/filemanager/MainActivity.java << 'EOF'
         package com.redmi.filemanager;
         
-        import android.Manifest;
-        import android.content.pm.PackageManager;
-        import android.os.Build;
         import android.os.Bundle;
-        import android.webkit.WebView;
-        import android.webkit.WebSettings;
-        import android.webkit.WebViewClient;
-        
         import com.getcapacitor.BridgeActivity;
-        import com.getcapacitor.Plugin;
-        
-        import java.util.ArrayList;
         
         public class MainActivity extends BridgeActivity {
-            
             @Override
             public void onCreate(Bundle savedInstanceState) {
                 super.onCreate(savedInstanceState);
-                
-                // Request permissions for Android 11+
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    requestPermissions(new String[]{
-                        Manifest.permission.MANAGE_EXTERNAL_STORAGE,
-                        Manifest.permission.READ_EXTERNAL_STORAGE,
-                        Manifest.permission.BLUETOOTH_SCAN,
-                        Manifest.permission.BLUETOOTH_CONNECT,
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    }, 100);
-                }
-                
-                // Request permissions for Android 12+
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    requestPermissions(new String[]{
-                        Manifest.permission.READ_MEDIA_IMAGES,
-                        Manifest.permission.READ_MEDIA_VIDEO,
-                        Manifest.permission.READ_MEDIA_AUDIO,
-                        Manifest.permission.POST_NOTIFICATIONS
-                    }, 101);
-                }
-                
-                // Enable webview debugging for development
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                    WebView.setWebContentsDebuggingEnabled(false);
-                }
-                
-                // Configure webview settings
-                WebView webView = new WebView(this);
-                WebSettings webSettings = webView.getSettings();
-                webSettings.setDomStorageEnabled(true);
-                webSettings.setAllowFileAccess(true);
-                webSettings.setAllowContentAccess(true);
-                webSettings.setAllowFileAccessFromFileURLs(true);
-                webSettings.setAllowUniversalAccessFromFileURLs(true);
             }
-            
-            @Override
-            public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-                super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-                // Handle permission results if needed
-            }
-        }
-        EOF
-    
-    - name: Update build.gradle with proper config
-      run: |
-        cat > android/app/build.gradle << 'EOF'
-        apply plugin: 'com.android.application'
-        
-        android {
-            namespace "com.redmi.filemanager"
-            compileSdkVersion 33
-            defaultConfig {
-                applicationId "com.redmi.filemanager"
-                minSdkVersion 21
-                targetSdkVersion 33
-                versionCode 1
-                versionName "1.0"
-                testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-            }
-            buildTypes {
-                release {
-                    minifyEnabled false
-                    proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-                }
-                debug {
-                    debuggable true
-                }
-            }
-            compileOptions {
-                sourceCompatibility JavaVersion.VERSION_17
-                targetCompatibility JavaVersion.VERSION_17
-            }
-        }
-        
-        repositories {
-            google()
-            mavenCentral()
-        }
-        
-        dependencies {
-            implementation fileTree(dir: 'libs', include: ['*.jar'])
-            implementation 'androidx.appcompat:appcompat:1.6.1'
-            implementation 'androidx.core:core:1.10.1'
-            implementation 'androidx.webkit:webkit:1.8.0'
-            implementation 'com.google.android.material:material:1.9.0'
-            implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-            testImplementation 'junit:junit:4.13.2'
-            androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-            androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
         }
         EOF
     
@@ -371,10 +155,9 @@ jobs:
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
             <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
-                <item name="colorPrimary">@color/colorPrimary</item>
-                <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-                <item name="colorAccent">@color/colorAccent</item>
-                <item name="android:windowBackground">@color/backgroundColor</item>
+                <item name="colorPrimary">#0f1320</item>
+                <item name="colorPrimaryDark">#0a0d15</item>
+                <item name="colorAccent">#4f8ef7</item>
             </style>
             
             <style name="AppTheme.NoActionBarLaunch" parent="Theme.AppCompat.Light.NoActionBar">
@@ -396,38 +179,40 @@ jobs:
         </resources>
         EOF
     
+    - name: Copy web assets to Android
+      run: npx cap copy android
+    
+    - name: Create local.properties
+      run: |
+        echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x android/gradlew
+    
     - name: Build Android APK (Debug)
       run: |
         cd android
-        ./gradlew assembleDebug
+        ./gradlew assembleDebug --no-daemon
     
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
         name: redmi-file-manager-debug
         path: android/app/build/outputs/apk/debug/app-debug.apk
-        compression-level: 0
+        if-no-files-found: error
+        retention-days: 30
     
     - name: Build Android APK (Release)
       run: |
         cd android
-        ./gradlew assembleRelease
+        ./gradlew assembleRelease --no-daemon
       continue-on-error: true
     
-    - name: Upload Release APK
-      if: success() || failure()
+    - name: Upload Release APK (if exists)
       uses: actions/upload-artifact@v4
+      if: success()
       with:
         name: redmi-file-manager-release
         path: android/app/build/outputs/apk/release/app-release.apk
-        compression-level: 0
-    
-    - name: Sign Release APK (Optional - for production)
-      if: false  # Disable by default, enable when you have signing keys
-      run: |
-        # Uncomment and add your signing keys as GitHub Secrets
-        # cd android
-        # echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
-        # ./gradlew signingReport
-        # ./gradlew assembleRelease
-        echo "Signing skipped - use debug APK for testing"
+        if-no-files-found: warn
+        retention-days: 30
