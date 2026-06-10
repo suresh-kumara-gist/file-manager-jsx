@@ -21,11 +21,16 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
+        cache: 'npm'
     
-    - name: Create package.json if missing
+    - name: Clear npm cache
       run: |
-        if [ ! -f package.json ]; then
-          cat > package.json << 'EOF'
+        npm cache clean --force
+        rm -rf node_modules package-lock.json
+    
+    - name: Create package.json
+      run: |
+        cat > package.json << 'EOF'
         {
           "name": "redmi-file-manager",
           "version": "1.0.0",
@@ -55,18 +60,41 @@ jobs:
           }
         }
         EOF
-        fi
     
-    - name: Install dependencies
-      run: npm install --legacy-peer-deps
-    
-    - name: Build React app
+    - name: Install dependencies with specific versions
       run: |
+        # Install exact versions to avoid conflicts
+        npm install --save-exact \
+          ajv@8.12.0 \
+          ajv-keywords@5.1.0 \
+          schema-utils@4.2.0 \
+          terser-webpack-plugin@5.3.9
+        
+        # Install main dependencies
+        npm install --legacy-peer-deps
+        
+        # Fix ajv module structure
+        npm install ajv@8.12.0 --save-exact
+    
+    - name: Verify ajv module
+      run: |
+        # Check if ajv/dist/compile/codegen exists
+        if [ ! -f node_modules/ajv/dist/compile/codegen.js ]; then
+          echo "Fixing ajv installation..."
+          rm -rf node_modules/ajv
+          npm install ajv@8.12.0 --save-exact --no-package-lock
+        fi
+        ls -la node_modules/ajv/dist/compile/ || true
+    
+    - name: Build React app with increased memory
+      run: |
+        export NODE_OPTIONS="--max-old-space-size=4096"
         npm run build
       env:
         CI: false
         DISABLE_ESLINT_PLUGIN: true
         SKIP_PREFLIGHT_CHECK: true
+        GENERATE_SOURCEMAP: false
     
     - name: Setup Java
       uses: actions/setup-java@v4
@@ -77,7 +105,7 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
     
-    - name: Create Capacitor config (JSON, not TS)
+    - name: Create Capacitor config
       run: |
         cat > capacitor.config.json << 'EOF'
         {
@@ -223,7 +251,7 @@ jobs:
         </resources>
         EOF
     
-    - name: Create simple launcher icons
+    - name: Create launcher icons
       run: |
         mkdir -p android/app/src/main/res/drawable
         cat > android/app/src/main/res/drawable/ic_launcher_background.xml << 'EOF'
@@ -251,20 +279,20 @@ jobs:
         </vector>
         EOF
         
-        mkdir -p android/app/src/main/res/mipmap-hdpi
-        mkdir -p android/app/src/main/res/mipmap-mdpi
-        mkdir -p android/app/src/main/res/mipmap-xhdpi
-        mkdir -p android/app/src/main/res/mipmap-xxhdpi
-        mkdir -p android/app/src/main/res/mipmap-xxxhdpi
-        
-        for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
-          cat > android/app/src/main/res/$dir/ic_launcher.xml << 'EOF'
+        for size in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
+          mkdir -p android/app/src/main/res/mipmap-$size
+          cat > android/app/src/main/res/mipmap-$size/ic_launcher.xml << 'EOF'
         <?xml version="1.0" encoding="utf-8"?>
         <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
             <background android:drawable="@drawable/ic_launcher_background"/>
             <foreground android:drawable="@drawable/ic_launcher_foreground"/>
         </adaptive-icon>
         EOF
+        done
+        
+        # Create round icon
+        for size in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
+          cp android/app/src/main/res/mipmap-$size/ic_launcher.xml android/app/src/main/res/mipmap-$size/ic_launcher_round.xml
         done
     
     - name: Copy web assets to Android
@@ -277,12 +305,6 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x android/gradlew
     
-    - name: Update Capacitor config in Android project
-      run: |
-        # Copy the config to android/app/src/main/assets/capacitor.config.json
-        mkdir -p android/app/src/main/assets
-        cp capacitor.config.json android/app/src/main/assets/
-    
     - name: Build Android APK (Debug)
       run: |
         cd android
@@ -294,19 +316,4 @@ jobs:
         name: redmi-file-manager-debug
         path: android/app/build/outputs/apk/debug/app-debug.apk
         if-no-files-found: error
-        retention-days: 30
-    
-    - name: Build Android APK (Release)
-      run: |
-        cd android
-        ./gradlew assembleRelease --no-daemon --stacktrace
-      continue-on-error: true
-    
-    - name: Upload Release APK (if exists)
-      uses: actions/upload-artifact@v4
-      if: success()
-      with:
-        name: redmi-file-manager-release
-        path: android/app/build/outputs/apk/release/app-release.apk
-        if-no-files-found: warn
         retention-days: 30
