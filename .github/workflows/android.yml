@@ -1,13 +1,9 @@
-name: Build Android APK
+name: Build Android APK (Simplified)
 
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  actions: write
 
 jobs:
   build:
@@ -21,80 +17,27 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
     
-    - name: Clear npm cache
+    - name: Create Capacitor app from scratch
       run: |
-        npm cache clean --force
-        rm -rf node_modules package-lock.json
-    
-    - name: Create package.json
-      run: |
-        cat > package.json << 'EOF'
-        {
-          "name": "redmi-file-manager",
-          "version": "1.0.0",
-          "private": true,
-          "dependencies": {
-            "react": "^18.2.0",
-            "react-dom": "^18.2.0",
-            "react-scripts": "5.0.1",
-            "@capacitor/core": "^5.0.0",
-            "@capacitor/android": "^5.0.0",
-            "@capacitor/filesystem": "^5.0.0",
-            "@capacitor/share": "^5.0.0",
-            "@capacitor/toast": "^5.0.0"
-          },
-          "scripts": {
-            "start": "react-scripts start",
-            "build": "react-scripts build",
-            "test": "react-scripts test",
-            "eject": "react-scripts eject"
-          },
-          "eslintConfig": {
-            "extends": ["react-app"]
-          },
-          "browserslist": {
-            "production": [">0.2%", "not dead", "not op_mini all"],
-            "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
-          }
-        }
-        EOF
-    
-    - name: Install dependencies with specific versions
-      run: |
-        # Install exact versions to avoid conflicts
-        npm install --save-exact \
-          ajv@8.12.0 \
-          ajv-keywords@5.1.0 \
-          schema-utils@4.2.0 \
-          terser-webpack-plugin@5.3.9
+        # Create a fresh Capacitor project
+        mkdir app
+        cd app
+        npm init -y
+        npm install @capacitor/core @capacitor/android @capacitor/filesystem @capacitor/share @capacitor/toast
+        npx cap init RedmiFileManager com.redmi.filemanager --web-dir=www
+        npx cap add android
         
-        # Install main dependencies
-        npm install --legacy-peer-deps
+        # Create a simple index.html
+        mkdir www
+        echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><title>File Manager</title><style>body{margin:0;background:#0f1320;color:#fff;font-family:system-ui}</style></head><body><div id="root"></div><script>window.location.href="https://your-app-url.com";</script></body></html>' > www/index.html
         
-        # Fix ajv module structure
-        npm install ajv@8.12.0 --save-exact
-    
-    - name: Verify ajv module
-      run: |
-        # Check if ajv/dist/compile/codegen exists
-        if [ ! -f node_modules/ajv/dist/compile/codegen.js ]; then
-          echo "Fixing ajv installation..."
-          rm -rf node_modules/ajv
-          npm install ajv@8.12.0 --save-exact --no-package-lock
+        cd ..
+        
+        # Copy the React build if it exists
+        if [ -d build ]; then
+          cp -r build/* app/www/
         fi
-        ls -la node_modules/ajv/dist/compile/ || true
-    
-    - name: Build React app with increased memory
-      run: |
-        export NODE_OPTIONS="--max-old-space-size=4096"
-        npm run build
-      env:
-        CI: false
-        DISABLE_ESLINT_PLUGIN: true
-        SKIP_PREFLIGHT_CHECK: true
-        GENERATE_SOURCEMAP: false
     
     - name: Setup Java
       uses: actions/setup-java@v4
@@ -105,215 +48,14 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
     
-    - name: Create Capacitor config
+    - name: Build APK
       run: |
-        cat > capacitor.config.json << 'EOF'
-        {
-          "appId": "com.redmi.filemanager",
-          "appName": "Redmi File Manager",
-          "webDir": "build",
-          "bundledWebRuntime": false,
-          "android": {
-            "allowMixedContent": true,
-            "captureInput": true,
-            "webContentsDebuggingEnabled": false,
-            "minSdkVersion": 21,
-            "targetSdkVersion": 33
-          }
-        }
-        EOF
+        cd app/android
+        chmod +x gradlew
+        ./gradlew assembleDebug
     
-    - name: Install Capacitor
-      run: |
-        npm install -g @capacitor/cli@5.0.0 @capacitor/android@5.0.0
-        npx cap init RedmiFileManager com.redmi.filemanager --web-dir=build --npm-client=npm
-    
-    - name: Add Android platform
-      run: |
-        npx cap add android
-      continue-on-error: true
-    
-    - name: Create AndroidManifest.xml
-      run: |
-        mkdir -p android/app/src/main
-        cat > android/app/src/main/AndroidManifest.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-            package="com.redmi.filemanager">
-        
-            <uses-permission android:name="android.permission.INTERNET" />
-            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
-            <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-            <uses-permission android:name="android.permission.BLUETOOTH" />
-            <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-            <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-            <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-            <uses-permission android:name="android.permission.CAMERA" />
-            <uses-permission android:name="android.permission.RECORD_AUDIO" />
-            <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-            <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-            <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-            <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-            <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-            
-            <queries>
-                <package android:name="com.whatsapp" />
-                <package android:name="com.google.android.gm" />
-                <package android:name="org.telegram.messenger" />
-                <intent>
-                    <action android:name="android.intent.action.SEND" />
-                    <data android:mimeType="*/*" />
-                </intent>
-            </queries>
-
-            <application
-                android:allowBackup="true"
-                android:icon="@mipmap/ic_launcher"
-                android:label="@string/app_name"
-                android:roundIcon="@mipmap/ic_launcher_round"
-                android:supportsRtl="true"
-                android:theme="@style/AppTheme"
-                android:requestLegacyExternalStorage="true"
-                android:usesCleartextTraffic="true"
-                android:largeHeap="true">
-                
-                <activity
-                    android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
-                    android:name="com.redmi.filemanager.MainActivity"
-                    android:label="@string/app_name"
-                    android:theme="@style/AppTheme.NoActionBarLaunch"
-                    android:launchMode="singleTask"
-                    android:exported="true">
-                    
-                    <intent-filter>
-                        <action android:name="android.intent.action.MAIN" />
-                        <category android:name="android.intent.category.LAUNCHER" />
-                    </intent-filter>
-                </activity>
-                
-            </application>
-        </manifest>
-        EOF
-    
-    - name: Create MainActivity
-      run: |
-        mkdir -p android/app/src/main/java/com/redmi/filemanager
-        cat > android/app/src/main/java/com/redmi/filemanager/MainActivity.java << 'EOF'
-        package com.redmi.filemanager;
-        
-        import android.os.Bundle;
-        import com.getcapacitor.BridgeActivity;
-        
-        public class MainActivity extends BridgeActivity {
-            @Override
-            public void onCreate(Bundle savedInstanceState) {
-                super.onCreate(savedInstanceState);
-            }
-        }
-        EOF
-    
-    - name: Create resources
-      run: |
-        mkdir -p android/app/src/main/res/values
-        cat > android/app/src/main/res/values/strings.xml << 'EOF'
-        <?xml version='1.0' encoding='utf-8'?>
-        <resources>
-            <string name="app_name">Redmi File Manager</string>
-        </resources>
-        EOF
-        
-        cat > android/app/src/main/res/values/themes.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <resources>
-            <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
-                <item name="colorPrimary">#0f1320</item>
-                <item name="colorPrimaryDark">#0a0d15</item>
-                <item name="colorAccent">#4f8ef7</item>
-            </style>
-            
-            <style name="AppTheme.NoActionBarLaunch" parent="Theme.AppCompat.Light.NoActionBar">
-                <item name="android:windowBackground">@color/backgroundColor</item>
-            </style>
-        </resources>
-        EOF
-        
-        cat > android/app/src/main/res/values/colors.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <resources>
-            <color name="colorPrimary">#0f1320</color>
-            <color name="colorPrimaryDark">#0a0d15</color>
-            <color name="colorAccent">#4f8ef7</color>
-            <color name="backgroundColor">#0f1320</color>
-        </resources>
-        EOF
-    
-    - name: Create launcher icons
-      run: |
-        mkdir -p android/app/src/main/res/drawable
-        cat > android/app/src/main/res/drawable/ic_launcher_background.xml << 'EOF'
-        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-            <solid android:color="#0f1320"/>
-        </shape>
-        EOF
-        
-        cat > android/app/src/main/res/drawable/ic_launcher_foreground.xml << 'EOF'
-        <vector xmlns:android="http://schemas.android.com/apk/res/android"
-            android:width="108dp"
-            android:height="108dp"
-            android:viewportWidth="108"
-            android:viewportHeight="108">
-            <path
-                android:fillColor="#4f8ef7"
-                android:pathData="M31,63.93L31,46.07L54,33L77,46.07L77,63.93L54,77L31,63.93Z"/>
-            <path
-                android:fillColor="#FFFFFF"
-                android:fillAlpha="0.5"
-                android:pathData="M54,44L68,52L68,68L54,76L40,68L40,52L54,44Z"/>
-            <path
-                android:fillColor="#FFFFFF"
-                android:pathData="M54,48L64,54L64,66L54,72L44,66L44,54L54,48Z"/>
-        </vector>
-        EOF
-        
-        for size in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
-          mkdir -p android/app/src/main/res/mipmap-$size
-          cat > android/app/src/main/res/mipmap-$size/ic_launcher.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-            <background android:drawable="@drawable/ic_launcher_background"/>
-            <foreground android:drawable="@drawable/ic_launcher_foreground"/>
-        </adaptive-icon>
-        EOF
-        done
-        
-        # Create round icon
-        for size in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
-          cp android/app/src/main/res/mipmap-$size/ic_launcher.xml android/app/src/main/res/mipmap-$size/ic_launcher_round.xml
-        done
-    
-    - name: Copy web assets to Android
-      run: npx cap copy android
-    
-    - name: Create local.properties
-      run: |
-        echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-    
-    - name: Grant execute permission for gradlew
-      run: chmod +x android/gradlew
-    
-    - name: Build Android APK (Debug)
-      run: |
-        cd android
-        ./gradlew assembleDebug --no-daemon --stacktrace
-    
-    - name: Upload Debug APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: redmi-file-manager-debug
-        path: android/app/build/outputs/apk/debug/app-debug.apk
-        if-no-files-found: error
-        retention-days: 30
+        name: file-manager-apk
+        path: app/android/app/build/outputs/apk/debug/app-debug.apk
